@@ -1,0 +1,234 @@
+# Pandas para mover tablas (datasets de texto, labels, etc.).
+# NLTK para tokenizar, stopwords, stemming/lemmatización.
+# Limpieza de texto con regex: bajar ruido (URLs, emojis, etc.).
+import pandas as pd
+import numpy as np
+import re
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Cargar dataset de texto (ajusta ruta/encoding si aplica)
+# Ejemplo genérico: textos.csv con columnas ['texto','label']
+df = pd.read_csv("textos.csv")
+
+# Vistazo rápido
+print("INFO:")
+print(df.info())
+print("\nHEAD:")
+print(df.head())
+
+# Limpieza básica del texto: minúsculas, quitar URLs, menciones, números, etc.
+def clean_text(s):
+    s = str(s).lower()
+    s = re.sub(r"http\S+|www\.\S+", " ", s)       # URLs fuera
+    s = re.sub(r"@\w+|#\w+", " ", s)             # menciones/hashtags fuera
+    s = re.sub(r"[^a-záéíóúñü\s]", " ", s)       # deja letras/espacios
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+df["texto_clean"] = df["texto"].apply(clean_text)
+
+# Conteo de longitudes y distribución básica
+df["tokens_len"] = df["texto_clean"].str.split().apply(len)
+print("\nLongitud media (tokens):", df["tokens_len"].mean())
+
+# Gráficas para inspeccionar
+plt.figure(figsize=(8,4))
+sns.histplot(df["tokens_len"], kde=True)
+plt.title("Distribución de longitud de texto (tokens)")
+plt.grid(True)
+plt.show()
+
+# NLTK para tokenizar, stopwords, stemming/lemmatización.
+import nltk
+
+# En notebooks, a veces se pide descargar recursos:
+# nltk.download('punkt')
+# nltk.download('stopwords')
+# nltk.download('wordnet')
+
+from nltk.corpus import stopwords
+from nltk.stem import SnowballStemmer, WordNetLemmatizer
+from nltk.tokenize import word_tokenize
+
+stop_es = set(stopwords.words("spanish"))
+stemmer = SnowballStemmer("spanish")
+lemmatizer = WordNetLemmatizer()
+
+def preprocess_tokens(s, mode="lemma", remove_stop=True):
+    toks = word_tokenize(s)
+    toks = [t for t in toks if t.isalpha()]
+    if remove_stop:
+        toks = [t for t in toks if t not in stop_es]
+    if mode == "stem":
+        toks = [stemmer.stem(t) for t in toks]
+    elif mode == "lemma":
+        toks = [lemmatizer.lemmatize(t) for t in toks]
+    return toks
+
+df["tokens"] = df["texto_clean"].apply(lambda s: preprocess_tokens(s, mode="lemma"))
+
+# Frecuencias rápidas
+from collections import Counter
+freq = Counter([t for row in df["tokens"] for t in row])
+print("\nTop 20 tokens:")
+print(freq.most_common(20))
+
+# Visual quick: top-N palabras
+topN = 20
+palabras, counts = zip(*freq.most_common(topN))
+plt.figure(figsize=(10,4))
+sns.barplot(x=list(palabras), y=list(counts))
+plt.xticks(rotation=45, ha="right")
+plt.title("Top palabras")
+plt.grid(True, axis="y")
+plt.show()
+
+# scikit-learn para vectorizar (BOW/TfIdf) y modelos clásicos.
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+
+# Vectorización: convertir texto a números (bolsa de palabras/TfIdf).
+cv = CountVectorizer(max_features=5000, ngram_range=(1,2))
+X_bow = cv.fit_transform(df["texto_clean"])
+
+tfidf = TfidfVectorizer(max_features=5000, ngram_range=(1,2))
+X_tfidf = tfidf.fit_transform(df["texto_clean"])
+
+# Si hay label, seguimos con split y un modelo base
+label_col = "label" if "label" in df.columns else None
+
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, roc_curve
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import LinearSVC
+from sklearn.naive_bayes import MultinomialNB
+
+if label_col:
+    y = df[label_col].astype(str)
+    # Train/test split
+    Xtr, Xte, ytr, yte = train_test_split(X_tfidf, y, test_size=0.2, random_state=42, stratify=y)
+
+    # Modelos clásicos de clasificación de texto (rápidos y efectivos).
+    models = {
+        "LogReg": LogisticRegression(max_iter=2000),
+        "LinearSVC": LinearSVC(),
+        "MultinomialNB": MultinomialNB()
+    }
+
+    for name, clf in models.items():
+        clf.fit(Xtr, ytr)
+        ypred = clf.predict(Xte)
+        print(f"\n== {name} ==")
+        print(classification_report(yte, ypred))
+        print("Matriz de confusión:\n", confusion_matrix(yte, ypred))
+
+        # AUC (sólo binario y si hay predict_proba/decision_function)
+        try:
+            if hasattr(clf, "predict_proba"):
+                proba = clf.predict_proba(Xte)[:,1]
+            else:
+                # decision_function para SVC lineal
+                proba = getattr(clf, "decision_function")(Xte)
+                # normalizamos a [0,1] para AUC si viene en márgenes
+                proba = (proba - proba.min()) / (proba.max() - proba.min() + 1e-9)
+
+            if len(np.unique(yte)) == 2:
+                # Mapear clases a 0/1 si son strings
+                y_bin = (yte == sorted(np.unique(yte))[-1]).astype(int)
+                auc = roc_auc_score(y_bin, proba)
+                print("AUC:", auc)
+                fpr, tpr, thr = roc_curve(y_bin, proba)
+                plt.figure()
+                plt.plot(fpr, tpr, label=f"{name} (AUC={auc:.3f})")
+                plt.plot([0,1],[0,1],'--', lw=1)
+                plt.xlabel("FPR"); plt.ylabel("TPR"); plt.legend(); plt.grid(True); plt.show()
+        except Exception as e:
+            print("AUC no disponible:", e)
+
+# Gensim para embeddings (Word2Vec/Doc2Vec) y tópicos (LDA).
+import gensim
+from gensim.models import Word2Vec
+from gensim import corpora, models
+
+# Corpus tokenizado para Word2Vec/LDA
+corpus_tokens = df["tokens"].tolist()
+
+# Entrenar Word2Vec rápido
+w2v = Word2Vec(sentences=corpus_tokens, vector_size=100, window=5, min_count=2, workers=2, epochs=10)
+print("\nVecinos de ejemplo (si existe la palabra):")
+ejemplo = palabras[0] if len(palabras) else None
+if ejemplo and ejemplo in w2v.wv.key_to_index:
+    print(w2v.wv.most_similar(ejemplo, topn=5))
+
+# LDA (tópicos) con Gensim
+dictionary = corpora.Dictionary(corpus_tokens)
+bow_corpus = [dictionary.doc2bow(text) for text in corpus_tokens]
+lda = models.LdaModel(bow_corpus, num_topics=5, id2word=dictionary, passes=5)
+
+print("\nTópicos LDA:")
+for i, topic in lda.show_topics(num_topics=5, num_words=8, formatted=False):
+    print(f"Tópico {i}:", ", ".join(w for w,_ in topic))
+
+# WordCloud para visualizar importancia de términos (usando TfIdf promedio)
+from wordcloud import WordCloud
+
+# Sumamos tf-idf por término para una nube rápida
+tfidf_df = pd.DataFrame(X_tfidf.toarray(), columns=tfidf.get_feature_names_out())
+tfidf_sum = tfidf_df.sum(axis=0)
+
+wc = WordCloud(width=900, height=450, background_color="white").generate_from_frequencies(tfidf_sum.to_dict())
+plt.figure(figsize=(12,6))
+plt.imshow(wc, interpolation="bilinear")
+plt.axis("off")
+plt.title("WordCloud (TF-IDF)")
+plt.show()
+
+
+# spaCy para procesamiento rápido (tokens, POS, entidades).
+# (Requiere modelo instalado: e.g., 'python -m spacy download es_core_news_sm')
+import spacy
+
+try:
+    nlp = spacy.load("es_core_news_sm")
+except OSError:
+    nlp = None
+    print("Modelo spaCy 'es_core_news_sm' no encontrado. Instálalo si quieres usar NER/POS.")
+
+if nlp:
+    # Analizamos algunas filas de ejemplo
+    ejemplos = df["texto_clean"].dropna().head(5).tolist()
+    for idx, txt in enumerate(ejemplos, 1):
+        doc = nlp(txt)
+        print(f"\n=== Ejemplo {idx} ===")
+        print("Tokens:", [t.text for t in doc])
+        print("POS   :", [(t.text, t.pos_) for t in doc[:10]])
+        print("NER   :", [(ent.text, ent.label_) for ent in doc.ents])
+
+# Transformers (HuggingFace): pipeline rápido de sentiment/zero-shot (si está instalado)
+try:
+    from transformers import pipeline
+    # Crea un pipeline de análisis de sentimientos (auto-model según idioma/CPU)
+    sentiment = pipeline("sentiment-analysis")
+    textos_demo = df["texto_clean"].dropna().head(3).tolist()
+    print("\nTransformers — Sentiment (demo):")
+    print(sentiment(textos_demo))
+except Exception as e:
+    print("Transformers no disponible o sin modelo descargado:", e)
+
+# Exportamos resultados (features/preds/metricas) a CSV si hace falta
+df.to_csv("textos_limpiados.csv", index=False)
+
+# BONUS: n-gramas manuales con NLTK para alguna exploración
+import nltk
+from nltk.util import ngrams
+
+def top_ngrams(tokens_series, n=2, top=15):
+    all_ngrams = []
+    for toks in tokens_series:
+        all_ngrams.extend(list(ngrams(toks, n)))
+    cont = Counter(all_ngrams)
+    return cont.most_common(top)
+
+print("\nTop bigramas (ej.):")
+print(top_ngrams(df["tokens"], n=2, top=15))
