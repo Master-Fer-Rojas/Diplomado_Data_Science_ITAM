@@ -1,0 +1,334 @@
+
+
+# Integra una función en [a,b] con cuadratura adaptativa (scipy.integrate.quad).
+from scipy import integrate
+import numpy as np
+
+# Integra una función en [a,b] con cuadratura adaptativa (scipy.integrate.quad).
+# Definimos f(x)=x^2-2x para ejemplos de integración numérica
+def f(x):
+    return (x**2 - 2*x)
+
+# Integra una función en [a,b] con cuadratura adaptativa (scipy.integrate.quad).
+# Integral ∫_0^{10} f(x) dx con método adaptativo
+resultado = integrate.quad(f, 0, 10)
+
+# Visualiza datos/resultados con matplotlib.
+# Mostramos valor y error estimado
+print(f"El valor aproximado de la integral es: {np.round(resultado[0], 2)}")
+print(f"El error estimado de la aproximación es: {np.round(resultado[1], 10)}")
+
+# Integra una función en [a,b] con cuadratura adaptativa (scipy.integrate.quad).
+# Mismo ejemplo con parámetro A: f(x,A)=x^2-Ax
+def f(x, A):
+    return (x**2 - A*x)
+
+# Integra una función en [a,b] con cuadratura adaptativa (scipy.integrate.quad).
+# Pasamos A=2 como argumento de la integral
+resultado = integrate.quad(f, 0, 10, args=(2,))
+print(f"El valor de la integral con A=2 es: {np.round(resultado[0], 2)}")
+
+# Aproxima ∫ f(x) dx con la regla del trapecio sobre puntos (x, y).
+# Discretizamos [0,10] y aproximamos ∫ f(x,2) dx con trapecio
+x = np.linspace(0, 10, 100)
+y = f(x, 2)
+resultado_trapz = np.trapz(y, x)
+print(f"Integral aproximada con trapz: {np.round(resultado_trapz, 2)}")
+
+# Aproxima la integral con la regla de Simpson compuesta.
+resultado_simps = integrate.simps(y, x)
+print(f"Integral aproximada con simps: {np.round(resultado_simps, 2)}")
+
+# Estima una integral por Monte Carlo muestreando uniformemente y promediando f(x).
+# ∫ f(x,2) dx ≈ (b-a) * promedio( f(U) ), U~Unif(0,10)
+N = 100000
+x_rand = np.random.uniform(0, 10, N)
+y_rand = f(x_rand, 2)
+resultado_mc = (10 - 0) * np.mean(y_rand)
+print(f"Integral aproximada con Monte Carlo: {np.round(resultado_mc, 2)}")
+
+# Deriva numéricamente con diferencias finitas hacia adelante (Δf/Δx).
+# Función para derivar: g(x)=sin(x)*e^{-0.1x}
+def g(x):
+    return np.sin(x) * np.exp(-0.1*x)
+
+# Deriva numéricamente con diferencias finitas hacia adelante (Δf/Δx).
+dx = 0.01
+x_vals = np.arange(0, 10, dx)
+g_vals = g(x_vals)
+g_deriv = np.diff(g_vals) / dx
+print(f"Derivada en x=5 aprox: {g_deriv[int(5/dx)]}")
+
+# Visualiza datos/resultados con matplotlib.
+# Método de bisección para h(x)=x^3-4x-9 en [2,3]
+def h(x):
+    return x**3 - 4*x - 9
+
+a, b = 2, 3
+tol = 1e-6
+while (b - a) / 2 > tol:
+    c = (a + b) / 2
+    if h(c) == 0:
+        break
+    elif h(a) * h(c) < 0:
+        b = c
+    else:
+        a = c
+raiz = (a + b) / 2
+print(f"La raíz aproximada (bisección) es: {raiz}")
+
+# Resuelve una ecuación diferencial ordinaria usando scipy.integrate.odeint.
+from scipy.integrate import odeint
+
+# Resuelve una ecuación diferencial ordinaria usando scipy.integrate.odeint.
+# EDO y'=-2y con y(0)=5
+def modelo(y, t):
+    dydt = -2 * y
+    return dydt
+
+y0 = 5
+t = np.linspace(0, 5, 100)
+sol = odeint(modelo, y0, t)
+print(f"Valor de la solución en t=5: {sol[-1][0]}")
+
+# Resuelve una ecuación diferencial ordinaria usando scipy.integrate.odeint.
+# Sistema del oscilador armónico: x'=v, v'=-x con x(0)=0, v(0)=1
+def sistema(y, t):
+    x, v = y
+    dxdt = v
+    dvdt = -x
+    return [dxdt, dvdt]
+
+y0 = [0, 1]
+t = np.linspace(0, 10, 100)
+sol = odeint(sistema, y0, t)
+print(f"x(t=10): {sol[-1][0]}, v(t=10): {sol[-1][1]}")
+
+# Construye un polinomio de interpolación resolviendo el sistema de Vandermonde.
+# Interpolación polinómica de la función de Runge en puntos equidistantes
+import matplotlib.pyplot as plt
+x_data = np.linspace(-1, 1, 6)
+y_data = 1/(1 + 25*x_data**2)
+
+# Construye un polinomio de interpolación resolviendo el sistema de Vandermonde.
+V = np.vander(x_data, increasing=True)
+coef = np.linalg.solve(V, y_data)
+
+# Visualiza datos/resultados con matplotlib.
+x_fine = np.linspace(-1, 1, 400)
+y_poly = sum(coef[i]*(x_fine**i) for i in range(len(coef)))
+
+plt.figure()
+plt.plot(x_fine, y_poly, label="Interpolación polinómica")
+plt.plot(x_data, y_data, 'o', label="Datos")
+plt.legend(); plt.grid(True); plt.show()
+
+# Genera nodos de Chebyshev para interpolación, reduciendo oscilación de Runge.
+# Interpolación con nodos de Chebyshev para mitigar Runge
+def chebyshev_nodes(a, b, n):
+    k = np.arange(n)
+    return 0.5*(a+b) + 0.5*(b-a)*np.cos((2*k+1)/(2*n)*np.pi)
+
+def f_runge(x): 
+    return 1/(1+25*x**2)
+
+Ns = [5, 10, 20]
+for N in Ns:
+    x_ch = chebyshev_nodes(-1, 1, N)
+    y_ch = f_runge(x_ch)
+    Vc = np.vander(x_ch, increasing=True)
+    coef_c = np.linalg.solve(Vc, y_ch)
+    y_interp_ch = sum(coef_c[i]*(x_fine**i) for i in range(len(coef_c)))
+    plt.figure()
+    plt.plot(x_fine, f_runge(x_fine), label='Función real')
+    plt.plot(x_fine, y_interp_ch, '--', label='Interpolación Chebyshev')
+    plt.plot(x_ch, y_ch, 'o', label='Nodos Chebyshev')
+    plt.title(f'Interpolación con {N} nodos')
+    plt.legend(); plt.grid(True); plt.show()
+
+# Ajuste por mínimos cuadrados (regresión lineal) resolviendo Aβ≈y.
+# Simulamos datos y ajustamos y = m x + b
+np.random.seed(0)
+x = np.linspace(0, 10, 30)
+y = 3.2*x + 5 + np.random.normal(0, 2, size=len(x))
+
+# Ajuste por mínimos cuadrados (regresión lineal) resolviendo Aβ≈y.
+A = np.vstack([x, np.ones_like(x)]).T
+beta, *_ = np.linalg.lstsq(A, y, rcond=None)
+m_est, b_est = beta
+print("Recta estimada: y ≈", m_est, "* x +", b_est)
+
+# Visualiza datos/resultados con matplotlib.
+plt.figure()
+plt.scatter(x, y, label='Datos')
+plt.plot(x, m_est*x + b_est, label='Ajuste MCO')
+plt.legend(); plt.grid(True); plt.show()
+
+# Visualiza datos/resultados con matplotlib.
+# Descenso de gradiente para minimizar f(x)=(x-2)^2+1
+def fobj(x): 
+    return (x-2)**2 + 1
+def d_fobj(x): 
+    return 2*(x-2)
+
+x = 8.0
+eta = 0.1
+tray = [x]
+for _ in range(40):
+    x = x - eta*d_fobj(x)
+    tray.append(x)
+
+print("x* ≈", x, "f(x*) =", fobj(x))
+
+# Visualiza datos/resultados con matplotlib.
+xf = np.linspace(-1, 9, 200)
+plt.figure()
+plt.plot(xf, fobj(xf), label='f(x)')
+plt.plot(tray, [fobj(v) for v in tray], '.-', label='trayectoria')
+plt.legend(); plt.grid(True); plt.show()
+
+
+# Implementa la regla del trapecio compuesta para n subintervalos.
+def trapecio_compuesto(f, a, b, n):
+    x = np.linspace(a, b, n+1)
+    y = f(x)
+    h = (b-a)/n
+    return h*(0.5*y[0] + y[1:-1].sum() + 0.5*y[-1])
+
+# Implementa la regla de Simpson compuesta (n debe ser par).
+def simpson_compuesto(f, a, b, n):
+    if n % 2 == 1:
+        n += 1
+    x = np.linspace(a, b, n+1)
+    y = f(x)
+    h = (b-a)/n
+    return h/3*(y[0] + y[-1] + 4*y[1:-1:2].sum() + 2*y[2:-2:2].sum())
+
+# Visualiza datos/resultados con matplotlib.
+# Probamos con ∫_0^π sin(x) dx = 2
+print("Trapecio comp:", trapecio_compuesto(np.sin, 0, np.pi, 200))
+print("Simpson comp.:", simpson_compuesto(np.sin, 0, np.pi, 200))
+
+# Construye un polinomio de interpolación resolviendo el sistema de Vandermonde.
+# Función auxiliar para evaluar el polinomio interpolante
+def interp_polinomio(xn, yn, xq):
+    V = np.vander(xn, increasing=True)
+    coef = np.linalg.solve(V, yn)
+    return sum(coef[i]*(xq**i) for i in range(len(coef)))
+
+# Visualiza datos/resultados con matplotlib.
+# Comparativa de interpolación con N equidistantes vs Chebyshev
+def runge(x): return 1/(1+25*x**2)
+x_fine = np.linspace(-1, 1, 600)
+Ns = [5, 9, 17]
+for i, N in enumerate(Ns, start=1):
+    # equidistantes
+    x_eq = np.linspace(-1, 1, N)
+    y_eq = runge(x_eq)
+    y_interp_eq = interp_polinomio(x_eq, y_eq, x_fine)
+    # Chebyshev
+    k = np.arange(N)
+    x_ch = 0.5*(-1+1) + 0.5*(1-(-1))*np.cos((2*k+1)/(2*N)*np.pi)
+    y_ch = runge(x_ch)
+    y_interp_ch = interp_polinomio(x_ch, y_ch, x_fine)
+
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10, 3.2))
+    plt.subplot(1, 2, 1)
+    plt.plot(x_fine, runge(x_fine), 'k', label='f real')
+    plt.plot(x_fine, y_interp_eq, '--', label='interp. equidistante')
+    plt.plot(x_eq, y_eq, 'o', label='nodos')
+    plt.title(f'Interpolación (equidistantes) N={N}')
+    plt.legend(); plt.grid(True)
+
+    plt.subplot(1, 2, 2)
+    plt.plot(x_fine, runge(x_fine), 'k', label='f real')
+    plt.plot(x_fine, y_interp_ch, '--', label='interp. Chebyshev')
+    plt.plot(x_ch, y_ch, 'o', label='nodos')
+    plt.title(f'Interpolación (Chebyshev) N={N}')
+    plt.legend(); plt.grid(True)
+    plt.tight_layout(); plt.show()
+
+# Ajuste por mínimos cuadrados (regresión lineal) resolviendo Aβ≈y.
+# Otra demostración rápida de regresión con ruido
+np.random.seed(42)
+x = np.linspace(-3, 3, 40)
+y = -1.2*x + 0.7 + np.random.normal(0, 0.7, size=len(x))
+A = np.vstack([x, np.ones_like(x)]).T
+beta, *_ = np.linalg.lstsq(A, y, rcond=None)
+m2, b2 = beta
+print("Recta 2: y ≈", m2, "* x +", b2)
+
+# Visualiza datos/resultados con matplotlib.
+plt.figure()
+plt.scatter(x, y, label='Datos')
+plt.plot(x, m2*x + b2, label='Ajuste MCO 2')
+plt.legend(); plt.grid(True); plt.show()
+
+# Visualiza datos/resultados con matplotlib.
+# Descenso de gradiente: mostramos trayectoria sobre f(x)
+xf = np.linspace(-1, 9, 200)
+def fobj(x): 
+    return (x-2)**2 + 1
+def d_fobj(x): 
+    return 2*(x-2)
+x = 8.0
+eta = 0.1
+tray = [x]
+for _ in range(40):
+    x = x - eta*d_fobj(x)
+    tray.append(x)
+plt.figure()
+plt.plot(xf, fobj(xf), label='f(x)')
+plt.plot(tray, [fobj(v) for v in tray], '.-', label='trayectoria')
+plt.scatter([tray[-1]], [fobj(tray[-1])], s=80, label='mínimo aprox')
+plt.legend(); plt.grid(True); plt.show()
+
+
+# Implementación iterativa de Newton-Raphson: xi+1 = xi - f(xi)/f'(xi).
+# Problema clásico: f(x)=x^3 + 4x^2 - 10; sabemos que tiene una raíz en (1,2).
+import numpy as np
+
+# f y su derivada f'
+fx  = lambda x: x**3 + 4*(x**2) - 10
+dfx = lambda x: 3*(x**2) + 8*x
+
+# Visualiza datos/resultados con matplotlib.
+# (opcional) Inspección visual rápida de f en un rango
+import matplotlib.pyplot as plt
+xx = np.arange(-10, 10)
+plt.figure()
+plt.plot(xx, fx(xx))
+plt.axhline(0, ls='--', lw=1)
+plt.title("f(x)=x^3+4x^2-10"); plt.grid(True); plt.show()
+
+# Implementación iterativa de Newton-Raphson: xi+1 = xi - f(xi)/f'(xi).
+# Procedimiento con tolerancia y tabla de iteraciones
+x0     = 2
+tolera = 0.001
+tabla  = []
+tramo  = abs(2*tolera)
+xi     = x0
+while (tramo >= tolera):
+    xnuevo = xi - fx(xi)/dfx(xi)   # paso de Newton
+    tramo  = abs(xnuevo - xi)      # distancia entre iteraciones consecutivas
+    tabla.append([xi, xnuevo, tramo])
+    xi = xnuevo
+
+# Convierte la lista a arreglo para formateo/visualización
+tabla = np.array(tabla)
+n = len(tabla)
+
+# Visualiza datos/resultados con matplotlib.
+# Reporte de iteraciones y raíz aproximada
+print(['xi', 'xnuevo', 'tramo'])
+np.set_printoptions(precision = 4)
+print(tabla)
+print('raiz en: ', xi)
+print('con error de: ', tramo)
+
+# Resuelve raíz con Newton-Raphson de SciPy (usa derivada si se provee).
+# Comprobación con SciPy: debería converger a la misma raíz
+import scipy.optimize as opt
+opt.newton(fx, x0, fprime=dfx, tol = tolera)
+
