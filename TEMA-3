@@ -1,0 +1,302 @@
+
+# Cargamos/transformamos datos con pandas (lo clásico para tablas).
+# Gráficas con matplotlib: ver la pinta de los datos dice muchísimo.
+# Seaborn para gráficas más bonitas y con menos código.
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Cargamos/transformamos datos con pandas (lo clásico para tablas).
+# Leemos un .csv a un DataFrame (piensa en una hoja de cálculo en memoria).
+# TIP: si el CSV trae encoding raro, usar encoding='latin-1' o 'utf-8-sig'.
+df = pd.read_csv("datos.csv")
+
+# Chequeo rápido: info/describe para ver tipos y estadísticas rápidas.
+print("=== INFO ===")
+print(df.info())
+print("\n=== DESCRIBE ===")
+print(df.describe(include='all'))
+
+# Lidiamos con nulos: contar, quitar o rellenar valores faltantes.
+nulos_por_col = df.isna().sum().sort_values(ascending=False)
+print("\n=== NULOS POR COLUMNA ===")
+print(nulos_por_col)
+
+# Ejem: rellenar un numérico con la mediana y un categórico con 'Desconocido'
+num_cols = df.select_dtypes(include=[np.number]).columns
+cat_cols = df.select_dtypes(exclude=[np.number]).columns
+
+for c in num_cols:
+    if df[c].isna().any():
+        df[c] = df[c].fillna(df[c].median())
+
+for c in cat_cols:
+    if df[c].isna().any():
+        df[c] = df[c].fillna("Desconocido")
+
+# Conteo de categorías para ver distribución rápida.
+# (Útil para entender desequilibrios o valores dominantes)
+for c in cat_cols:
+    print(f"\n-- value_counts({c}) --")
+    print(df[c].value_counts(dropna=False).head(15))
+
+# Gráficas rápidas de variables numéricas (histogramas)
+num_cols = df.select_dtypes(include=[np.number]).columns
+for c in num_cols:
+    plt.figure()
+    sns.histplot(df[c], kde=True)
+    plt.title(f"Distribución de {c}")
+    plt.grid(True)
+    plt.show()
+
+# Gráficas de barra para categóricas top-10
+for c in cat_cols:
+    plt.figure(figsize=(8,4))
+    vc = df[c].value_counts().head(10)
+    sns.barplot(x=vc.index, y=vc.values)
+    plt.title(f"Top categorías en {c}")
+    plt.xticks(rotation=45, ha='right')
+    plt.grid(True, axis='y')
+    plt.show()
+
+# Creamos/transformamos columnas nuevas para enriquecer el análisis.
+# Ejemplo: si hay columnas de monto y cantidad, calculamos ticket_promedio
+if {'monto','cantidad'}.issubset(df.columns):
+    df['ticket_promedio'] = df['monto'] / df['cantidad'].replace(0, np.nan)
+
+# Fechas/horas: parseo y features tipo día, mes, semana, etc.
+# Si existe una columna 'fecha', la convertimos y sacamos añadidos útiles
+if 'fecha' in df.columns:
+    df['fecha'] = pd.to_datetime(df['fecha'], errors='coerce')
+    df['anio']  = df['fecha'].dt.year
+    df['mes']   = df['fecha'].dt.month
+    df['dia']   = df['fecha'].dt.day
+    df['dow']   = df['fecha'].dt.dayofweek  # 0=lunes
+
+# Ordenamos o nos quedamos con top-N según alguna métrica.
+# Top 10 por monto si existe
+if 'monto' in df.columns:
+    top10 = df.sort_values('monto', ascending=False).head(10)
+    print("\n=== TOP 10 por monto ===")
+    print(top10[['monto'] + [c for c in ['fecha','categoria','cliente'] if c in df.columns]])
+
+# Agrupamos por categorías para calcular métricas por grupo.
+# Ejemplo: ventas por mes y categoría (si existen columnas)
+if {'mes','categoria','monto'}.issubset(df.columns):
+    resumen = df.groupby(['anio','mes','categoria'], as_index=False)['monto'].sum()
+    print("\n=== Ventas por año-mes-categoría ===")
+    print(resumen.head())
+
+    # Gráfica de series (total por mes)
+    mensual = df.groupby(['anio','mes'], as_index=False)['monto'].sum()
+    mensual['fecha_mes'] = pd.to_datetime(mensual['anio'].astype(str) + '-' + mensual['mes'].astype(str) + '-01')
+    plt.figure(figsize=(10,4))
+    sns.lineplot(data=mensual, x='fecha_mes', y='monto')
+    plt.title("Ventas mensuales")
+    plt.grid(True)
+    plt.show()
+
+# Unimos tablas (tipo VLOOKUP pero pro): merge por llaves.
+# Si hay un segundo CSV con catálogo de clientes
+try:
+    clientes = pd.read_csv("clientes.csv")
+    if 'cliente_id' in df.columns and 'cliente_id' in clientes.columns:
+        df = df.merge(clientes, on='cliente_id', how='left')
+except FileNotFoundError:
+    pass  # si no existe, seguimos de largo
+
+# Reacomodamos tablas: pivoteo para cuadros tipo Excel
+if {'anio','mes','categoria','monto'}.issubset(df.columns):
+    tabla_pivot = pd.pivot_table(df, index=['anio','mes'], columns='categoria', values='monto', aggfunc='sum')
+    print("\n=== Pivot ventas (anio-mes x categoría) ===")
+    print(tabla_pivot.head())
+
+# Filtrado expresivo con .query(): más legible en varias condiciones.
+# Ejemplo: ventas altas y de cierta categoría (si existen campos)
+if {'monto','categoria'}.issubset(df.columns):
+    filtro = df.query("monto > 1000 and categoria == @cat", local_dict={'cat': df['categoria'].iloc[0] if 'categoria' in df.columns and len(df) else None})
+    print("\n=== Filtro ejemplo (monto>1000 & una categoría) ===")
+    print(filtro.head())
+
+# Detectamos y limpiamos duplicados para no contar dos veces.
+if 'id' in df.columns:
+    dups = df['id'].duplicated().sum()
+    print(f"\nDuplicados por id: {dups}")
+    df = df.drop_duplicates(subset=['id'])
+
+# Estandarizamos tipos básicos para evitar sorpresas
+for c in df.columns:
+    if df[c].dtype == 'object' and c != 'fecha':
+        try:
+            df[c] = df[c].astype('category')
+        except Exception:
+            pass
+
+
+
+
+# Series de tiempo: re-muestreo o ventanas móviles para tendencias.
+if 'fecha' in df.columns and 'monto' in df.columns:
+    serie = df.set_index('fecha')['monto'].sort_index()
+    # Re-muestreo a mensual (suma del mes)
+    serie_m = serie.resample('M').sum()
+    # Ventana móvil de 3 meses para suavizar
+    roll_3 = serie_m.rolling(3, min_periods=1).mean()
+
+    plt.figure(figsize=(10,4))
+    plt.plot(serie_m.index, serie_m.values, label='Mensual')
+    plt.plot(roll_3.index, roll_3.values, label='Media móvil 3M')
+    plt.title("Serie mensual + suavizado")
+    plt.legend(); plt.grid(True)
+    plt.show()
+
+# value_counts para distribución por cliente/categoría si aplica
+for c in [col for col in ['cliente','categoria','segmento'] if col in df.columns]:
+    print(f"\nTop valores en {c}")
+    print(df[c].value_counts().head(10))
+
+# Aplanamos JSONs anidados si hay columna tipo objeto con dicts/JSON
+if any(df[col].apply(lambda v: isinstance(v, dict)).any() for col in df.columns if df[col].dtype == 'object'):
+    from pandas import json_normalize
+    cols_json = [col for col in df.columns if df[col].dtype == 'object' and df[col].apply(lambda v: isinstance(v, dict)).any()]
+    for col in cols_json:
+        plano = json_normalize(df[col]).add_prefix(f"{col}.")
+        df = pd.concat([df.drop(columns=[col]), plano], axis=1)
+
+# Partimos datos en entrenamiento/prueba para validar sin hacernos trampa.
+from sklearn.model_selection import train_test_split
+
+# Si tenemos target binario (e.g., 'y') y features numéricas, armamos un ejemplo de clasificación
+target_candidates = [c for c in df.columns if c.lower() in ['target','etiqueta','clase','y']]
+X = df.select_dtypes(include=[np.number]).drop(columns=target_candidates, errors='ignore')
+y = df[target_candidates[0]] if target_candidates else None
+
+if y is not None and y.nunique() in (2, 3):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+
+    # Estandarizamos features: que ninguna domine por escala.
+    from sklearn.preprocessing import StandardScaler
+    scaler = StandardScaler()
+    X_train_s = scaler.fit_transform(X_train)
+    X_test_s  = scaler.transform(X_test)
+
+    # Regresión logística: clasificador base
+    from sklearn.linear_model import LogisticRegression
+    clf = LogisticRegression(max_iter=1000)
+    clf.fit(X_train_s, y_train)
+    print("\n=== LogisticRegression: accuracy ===")
+    print(clf.score(X_test_s, y_test))
+
+    # Métricas ROC/AUC y matriz de confusión
+    from sklearn.metrics import roc_auc_score, roc_curve, confusion_matrix, classification_report
+    if y.nunique() == 2:
+        proba = clf.predict_proba(X_test_s)[:,1]
+        auc = roc_auc_score(y_test, proba)
+        print("AUC:", auc)
+        fpr, tpr, thr = roc_curve(y_test, proba)
+        plt.figure()
+        plt.plot(fpr, tpr, label=f"ROC (AUC={auc:.3f})")
+        plt.plot([0,1],[0,1],'--', lw=1)
+        plt.xlabel("FPR"); plt.ylabel("TPR"); plt.legend(); plt.grid(True); plt.show()
+
+    y_pred = clf.predict(X_test_s)
+    print("\n=== Matriz de confusión ===")
+    print(confusion_matrix(y_test, y_pred))
+    print("\n=== Reporte de clasificación ===")
+    print(classification_report(y_test, y_pred))
+
+# Si tenemos un target numérico, probamos regresión lineal
+from sklearn.linear_model import LinearRegression
+targets_num = [c for c in df.columns if c.lower() in ['y_num','objetivo','target_num','monto_objetivo']]
+if targets_num:
+    ynum = df[targets_num[0]]
+    Xnum = df.select_dtypes(include=[np.number]).drop(columns=[targets_num[0]], errors='ignore')
+    Xtr, Xte, ytr, yte = train_test_split(Xnum, ynum, test_size=0.2, random_state=42)
+    lr = LinearRegression()
+    lr.fit(Xtr, ytr)
+    print("\n=== LinearRegression: R2 ===")
+    print(lr.score(Xte, yte))
+
+# Top-N por métrica: útil para listas de “mejores/peores”
+if 'monto' in df.columns:
+    print("\nTop 5 por monto DESC:")
+    print(df.nlargest(5, 'monto')[['monto'] + [c for c in ['cliente','categoria'] if c in df.columns]])
+    print("\nBottom 5 por monto ASC:")
+    print(df.nsmallest(5, 'monto')[['monto'] + [c for c in ['cliente','categoria'] if c in df.columns]])
+
+# Manejo de archivos: si hay varios CSV tipo data_*.csv los concatenamos
+import glob, os
+csvs = sorted(glob.glob("data_*.csv"))
+if csvs:
+    lista = []
+    for p in csvs:
+        try:
+            lista.append(pd.read_csv(p))
+        except Exception:
+            pass
+    if lista:
+        df_multi = pd.concat(lista, ignore_index=True)
+        print("\n=== Concatenados desde data_*.csv ===")
+        print(df_multi.shape, "filas/cols")
+
+
+# BONUS: demo sintetizada de clasificación 2D para visualizar frontera (si no hay target)
+# Útil cuando quieres mostrar el flujo train/test + frontera con datos equilibrados/desbalanceados.
+from sklearn.datasets import make_classification
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Generamos un dataset fácil de visualizar
+X, y = make_classification(
+    n_samples=1000,       # número de instancias
+    n_features=2,         # para graficar fácilmente
+    n_informative=2,      # features útiles
+    n_redundant=0,        # features redundantes
+    n_clusters_per_class=1,
+    weights=[0.7, 0.3],   # desbalance de clases (70%-30%)
+    class_sep=0.8,        # cuánto se separan las clases (solapamiento)
+    random_state=42
+)
+
+# Convertir a DataFrame para facilidad
+import pandas as pd
+df_synth = pd.DataFrame(X, columns=['x1','x2'])
+df_synth['y'] = y
+
+# Split train/test
+X_train, X_test, y_train, y_test = train_test_split(df_synth[['x1','x2']], df_synth['y'], test_size=0.25, random_state=42, stratify=df_synth['y'])
+
+# Entrenar
+model = LogisticRegression()
+model.fit(X_train, y_train)
+
+# Métricas rápidas
+y_pred = model.predict(X_test)
+print("\n=== Clasificación sintética 2D ===")
+print(confusion_matrix(y_test, y_pred))
+print(classification_report(y_test, y_pred))
+
+# Malla para frontera de decisión
+x_min, x_max = df_synth['x1'].min()-0.5, df_synth['x1'].max()+0.5
+y_min, y_max = df_synth['x2'].min()-0.5, df_synth['x2'].max()+0.5
+xx, yy = np.meshgrid(np.linspace(x_min, x_max, 400), np.linspace(y_min, y_max, 400))
+Z = model.predict(np.c_[xx.ravel(), yy.ravel()])
+Z = Z.reshape(xx.shape)
+
+# ---Graficar ---
+plt.figure(figsize=(12, 6))
+plt.contourf(xx, yy, Z, alpha=0.2, cmap=plt.cm.coolwarm)  # frontera de decisión
+for label in np.unique(y):
+    pts = df_synth[df_synth['y']==label]
+    plt.scatter(pts['x1'], pts['x2'], label=f"Clase {label}", edgecolor='k', s=20, alpha=0.7)
+plt.xlabel("X1")
+plt.ylabel("X2")
+plt.title("Regresión Logística: Frontera de decisión (dataset sintético)")
+plt.legend()
+plt.grid(True)
+plt.show()
+                                                
