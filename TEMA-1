@@ -1,0 +1,847 @@
+## Modelo entidad relación
+
+## Relación 1 vs 1
+personas = pd.DataFrame({
+    "id_persona": [1, 2],
+    "nombre": ["Ana", "Luis"]
+})
+
+pasaportes = pd.DataFrame({
+    "id_pasaporte": [101, 102],
+    "id_persona": [1, 2]  # cada pasaporte tiene una sola persona asociada
+})
+
+## Realción 1 vs N
+profesores = pd.DataFrame({
+    "id_profesor": [1, 2],
+    "nombre": ["Mario", "Lucía"]
+})
+
+materias = pd.DataFrame({
+    "id_materia": [101, 102, 103],
+    "nombre": ["Matemáticas", "Física", "Química"],
+    "id_profesor": [1, 1, 2]  # varias materias pueden tener el mismo profesor
+})
+
+# Hacemos el JOIN usando 'id_profesor'
+resultado = pd.merge(materias, profesores, on="id_profesor", suffixes=('_materia', '_profesor'))
+
+resultado
+
+## Relación N vs M
+
+estudiantes = pd.DataFrame({
+    "id_estudiante": [1, 2],
+    "nombre": ["Ana", "Luis"]
+})
+
+materias = pd.DataFrame({
+    "id_materia": [101, 102],
+    "nombre": ["Historia", "Biología"]
+})
+
+inscripciones = pd.DataFrame({
+    "id_estudiante": [1, 1, 2],
+    "id_materia": [101, 102, 101]  # relaciones múltiples
+})
+
+resultado = (
+    inscripciones
+    .merge(estudiantes, on="id_estudiante")
+    .merge(materias, on="id_materia", suffixes=('_estudiante', '_materia'))
+)
+
+## Integridad de una Base de Datos
+
+##Restricción no Nullidad
+
+import numpy as np
+
+personas = pd.DataFrame({
+    "id_persona": [1, 2, 3, 4],
+    "nombre": ["Ana", "Luis", "Marta", None],
+    "edad": [25, None, 40, 35],
+    "email": ["ana@email.com", None, "marta@email.com", "luis@email.com"]
+})
+
+##Restricción Clave Primaria
+
+compras = pd.DataFrame({
+    "id_cliente": [1, 2, 1, 3],
+    "producto": ["Laptop", "Celular", "Mouse", "Tablet"],
+    "monto": [15000, 8000, 500, 6000]
+})
+
+compras
+
+compras[compras.id_cliente==1]["monto"]
+
+## Restricción clave foranea 
+
+# Tabla clientes
+clientes = pd.DataFrame({
+    "id_cliente": [1, 2, 3],
+    "nombre": ["Ana", "Luis", "Marta"]
+})
+
+# Tabla ordenes (sin respetar integridad referencial)
+ordenes = pd.DataFrame({
+    "id_orden": [100, 101, 102],
+    "id_cliente": [1, 4, 2],  # Nota que 4 no existe en clientes
+    "producto": ["Laptop", "Tablet", "Celular"]
+})
+
+print("Clientes:\n", clientes)
+print("\nÓrdenes:\n", ordenes)
+
+
+
+personas
+
+
+##Una clave foránea (foreign key) en una tabla debe referenciar a una clave primaria, garantizando así la integridad referencial. 
+##Esto significa que cada valor presente en la columna (o conjunto de columnas) definida como clave foránea debe existir previamente como un valor válido en la tabla referenciada.
+
+
+#Normalización
+# Tabla sin cumplir 1NF (valores no atómicos en 'telefonos')
+personas = pd.DataFrame({
+    "id_persona": [1, 2],
+    "nombre": ["Ana", "Luis"],
+    "direccion": ["puente de aduana,iztapalapa,cdmx", "puente de guerra,tlalpan,cdmx"]
+})
+
+personas
+
+### solución
+
+# Dividir la columna 'direccion' en tres nuevas columnas
+personas[['calle', 'delegacion', 'municipio']] = personas['direccion'].str.split(',', expand=True)
+
+personas.drop("direccion",axis=1)
+
+# Tabla que viola la 2NF:  Id: (id_estudiante, id_materia)
+calificaciones = pd.DataFrame({
+    "id_estudiante": [1, 1, 2],
+    "id_materia": [101, 102, 101],
+    "nombre_estudiante": ["Ana", "Ana", "Luis"],
+    "calificacion": [90, 85, 88]
+})
+
+calificaciones
+
+estudiantes = calificaciones[["id_estudiante", "nombre_estudiante"]].drop_duplicates().reset_index(drop=True)
+estudiantes
+
+calificaciones_norm = calificaciones.drop(columns=["nombre_estudiante"])
+calificaciones_norm
+
+empleados = pd.DataFrame({
+    "id_empleado": [1, 2, 3],
+    "nombre": ["Ana", "Luis", "Marta"],
+    "departamento_id": [10, 20, 10],
+    "departamento_nombre": ["Ventas", "Marketing", "Ventas"]
+})
+
+empleados
+
+empleados_norm = empleados.drop(columns=["departamento_nombre"])
+
+empleados_norm
+
+departamentos = empleados[["departamento_id", "departamento_nombre"]].drop_duplicates().reset_index(drop=True)
+departamentos
+
+### Buen ser de un conjunto relacionado
+
+# Tabla Estudiantes
+estudiantes = pd.DataFrame({
+    "id_estudiante": [1, 2, 3],
+    "nombre": ["Ana", "Luis", "Marta"],
+    "fecha_nacimiento": ["2000-01-01", "1999-05-12", "2001-08-20"]
+})
+
+# Tabla Materias
+materias = pd.DataFrame({
+    "id_materia": [101, 102],
+    "nombre_materia": ["Matemáticas", "Física"]
+})
+
+# Tabla Calificaciones
+calificaciones = pd.DataFrame({
+    "id_estudiante": [1, 1, 2, 3],
+    "id_materia": [101, 102, 101, 102],
+    "calificacion": [90, 85, 88, 92]
+})
+
+
+## Conectando python a nuestro SMBD
+
+import warnings
+warnings.filterwarnings("ignore")
+
+!!pip install PyMySQL
+!!pip install sqlalchemy
+
+# Importamos la función create_engine de la librería SQLAlchemy,
+# que se utiliza para crear el "engine" o motor de conexión a la base de datos
+
+from sqlalchemy import create_engine, text
+
+# Creamos el engine para conectarnos a la base de datos MySQL utilizando el driver pymysql.
+
+# La cadena de conexión tiene la siguiente estructura:
+# 'dialecto+driver://usuario:contraseña@host[:puerto]/nombre_base_de_datos'
+
+# En este caso:
+# dialecto+driver = mysql+pymysql  --> Usamos MySQL con el driver pymysql
+# usuario = root                  --> Nombre de usuario para la base de datos
+# contraseña = 1995              --> Contraseña del usuario
+# host = localhost               --> Dirección del servidor de la base de datos (local)
+engine = create_engine('mysql+pymysql://root:1995@localhost')
+
+# Nota: En esta cadena no se especifica el puerto ni el nombre de la base de datos,
+# por lo que se usará el puerto por defecto (3306) y no se selecciona una base de datos específica.
+# engine = create_engine('mysql+pymysql://root:1995@localhost:3307/mi_base')
+
+# Abre una conexión al motor de base de datos usando un contexto "with",
+# lo que garantiza que la conexión se cierre automáticamente al finalizar el bloque
+with engine.connect() as connection:
+    
+    # Ejecuta una sentencia SQL para crear una base de datos llamada "ejemplo_alchemy3"
+    # La función text() se usa para envolver la cadena SQL y que SQLAlchemy la reconozca como tal
+    connection.execute(text("CREATE DATABASE ejemplo_alchemy3"))
+    
+    # Confirma (hace permanentes) los cambios realizados en la base de datos dentro de esta transacción
+    connection.commit()
+
+
+# Abre una conexión al motor de base de datos usando un contexto "with",
+# asegurando que la conexión se cierre automáticamente al finalizar el bloque
+with engine.connect() as connection:
+    
+    # Ejecuta una sentencia SQL para eliminar la base de datos llamada "ejemplo_alchemy3"
+    # Solo elimina si la base de datos existe, gracias a la cláusula IF EXISTS
+    connection.execute(text("DROP DATABASE IF EXISTS ejemplo_alchemy3"))
+    
+    # Confirma (hace permanentes) los cambios realizados en la base de datos dentro de esta transacción
+    connection.commit()
+
+### Sesiones  
+# Importa la función create_engine para crear el motor de conexión a la base de datos
+from sqlalchemy import create_engine
+
+# Importa sessionmaker, que es una fábrica para crear objetos sesión
+from sqlalchemy.orm import sessionmaker
+
+# Crea el engine que representa la conexión al motor de base de datos MySQL
+# usando el driver pymysql, apuntando a la base de datos "ejemplo_alchemy"
+engine = create_engine('mysql+pymysql://root:1995@localhost/ejemplo_alchemy3')
+
+# Crea una clase Session configurada para usar el engine creado
+# Esto permite crear nuevas sesiones vinculadas a ese engine
+Session = sessionmaker(bind=engine)
+
+# Instancia una sesión concreta que será usada para interactuar con la base de datos
+session = Session()
+
+# Creando los modelos
+# Importamos create_engine para establecer la conexión con la base de datos
+from sqlalchemy import create_engine
+
+# Importamos declarative_base para definir la clase base de los modelos
+from sqlalchemy.orm import declarative_base
+
+# Importamos sessionmaker para crear sesiones que manejarán las operaciones con la base de datos
+from sqlalchemy.orm import sessionmaker
+
+# ---------------------------
+# Configuración del engine
+# ---------------------------
+# El engine es el punto de entrada para la comunicación con la base de datos.
+# Parámetros del connection string:
+# dialecto+driver://usuario:contraseña@host:puerto/nombre_base_de_datos
+engine = create_engine('mysql+pymysql://root:1995@localhost/ejemplo_alchemy3')
+
+# ---------------------------
+# Configuración de la sesión
+# ---------------------------
+# sessionmaker crea una clase generadora de sesiones, ligada al engine configurado.
+Session = sessionmaker(bind=engine)
+
+# Creamos una instancia concreta de sesión para realizar operaciones (consultas, inserciones, etc.)
+session = Session()
+
+# ---------------------------
+# Definición de la clase base para los modelos
+# ---------------------------
+# Declarative_base provee una clase base que nuestros modelos heredarán para permitir el mapeo
+# automático entre las clases de Python y las tablas de la base de datos.
+Base = declarative_base()
+
+
+#Dependiendo de la estructura de nuestras tablas tenemos que importar de sqlalchemy las
+#propiedades necesarias
+from sqlalchemy import Column, Integer, String, Float , CHAR , Date , Text
+from datetime import date
+
+from sqlalchemy import (
+    Column, Integer, String, Date,
+    CheckConstraint,ForeignKey
+)
+from sqlalchemy.orm import relationship
+from sqlalchemy.orm import declarative_base
+
+Base = declarative_base()
+
+class Cliente(Base):
+    __tablename__ = 'cliente'
+    
+    # ID único para cada cliente (clave primaria)
+    id = Column(Integer, primary_key=True)
+    
+    # Nombre del cliente, obligatorio, máximo 100 caracteres
+    nombre = Column(String(100), nullable=False)
+    
+    # Email único y obligatorio del cliente
+    email = Column(String(100), nullable=False, unique=True)
+    
+    # Fecha de registro del cliente, obligatorio
+    fecha_registro = Column(Date, nullable=False)
+    
+    # Relación con Sucursal (un cliente puede pertenecer a una sucursal)
+    sucursal_id = Column(Integer, ForeignKey('sucursal.id'), nullable=False)
+    
+    # Relación inversa para acceder a la sucursal desde cliente
+    sucursal = relationship("Sucursal", back_populates="clientes")
+    
+    # Restricciones adicionales para validar datos
+    __table_args__ = (
+        CheckConstraint("length(nombre) > 0", name="ck_cliente_nombre_no_vacio"),
+        CheckConstraint("email LIKE '%_@_%._%'", name="ck_cliente_email_formato"),
+    )
+
+class Sucursal(Base):
+    __tablename__ = 'sucursal'
+    
+    # ID único para cada sucursal (clave primaria)
+    id = Column(Integer, primary_key=True)
+    
+    # Nombre de la sucursal, obligatorio, máximo 50 caracteres
+    nombre = Column(String(50), nullable=False)
+    
+    # Dirección de la sucursal, obligatorio, máximo 200 caracteres
+    direccion = Column(String(200), nullable=False)
+    
+    # Relación inversa para acceder a todos los clientes de esta sucursal
+    clientes = relationship("Cliente", back_populates="sucursal")
+    
+    # Restricciones para validar datos
+    __table_args__ = (
+        CheckConstraint("length(nombre) > 0", name="ck_sucursal_nombre_no_vacio"),
+        CheckConstraint("length(direccion) > 0", name="ck_sucursal_direccion_no_vacio"),
+    )
+
+
+# Crea todas las tablas definidas en las clases que heredan de Base
+# La función metadata.create_all() usa el engine para ejecutar las sentencias
+# de creación de tablas en la base de datos (en este caso MySQL).
+
+# Nota importante:
+# - Si las tablas ya existen, esta función no las vuelve a crear ni reemplaza,
+#   simplemente ignora las tablas existentes para evitar errores.
+# - No se debe intentar crear tablas con el mismo nombre varias veces sin antes
+#   eliminarlas o modificar el esquema, ya que SQL lanzaría un error.
+Base.metadata.create_all(engine)
+
+# Crear sucursales
+sucursal1 = Sucursal(nombre="Sucursal Centro", direccion="Av. Reforma 123, CDMX")
+sucursal2 = Sucursal(nombre="Sucursal Norte", direccion="Calle 5 de Mayo 456, CDMX")
+
+# Agregarlas a la sesión
+session.add_all([sucursal1, sucursal2])
+session.commit()  # Se requiere para que obtengan IDs
+
+# Crear clientes asociados a las sucursales
+cliente1 = Cliente(
+    nombre="Juan Pérez",
+    email="juan.perez@email.com",
+    fecha_registro=date(2025, 7, 18),
+    sucursal_id=sucursal1.id
+)
+
+cliente2 = Cliente(
+    nombre="Ana Gómez",
+    email="ana.gomez@email.com",
+    fecha_registro=date(2025, 7, 17),
+    sucursal_id=sucursal1.id
+)
+
+cliente3 = Cliente(
+    nombre="Carlos Díaz",
+    email="carlos.diaz@email.com",
+    fecha_registro=date(2025, 7, 16),
+    sucursal_id=sucursal2.id
+)
+
+# Agregar clientes a la sesión
+session.add_all([cliente1, cliente2, cliente3])
+session.commit()
+
+session.close()
+
+### si tuvieramos un DF
+
+# Conexión a la base
+engine = create_engine('mysql+pymysql://root:1995@localhost/ejemplo_alchemy3')
+Session = sessionmaker(bind=engine)
+session = Session()
+
+# Leer CSV
+df = pd.read_csv('clientes.csv')
+
+# Iterar sobre filas y crear objetos Cliente
+clientes = []
+for _, row in df.iterrows():
+    cliente = Cliente(
+        nombre=row['nombre'],
+        email=row['email'],
+        fecha_registro=datetime.strptime(row['fecha_registro'], '%Y-%m-%d').date(),
+        sucursal_id=row['sucursal_id']
+    )
+    clientes.append(cliente)
+
+# Agregar todos de una vez
+session.add_all(clientes)
+session.commit()
+
+
+engine = create_engine('mysql+pymysql://root:1995@localhost/ejemplo_alchemy3')
+connection = engine.raw_connection()
+pd.read_sql("SELECT * FROM cliente", connection)
+
+pd.read_sql("SELECT * FROM sucursal", connection)
+
+pd.read_sql("SELECT * FROM cliente JOIN sucursal on sucursal_id=sucursal.id", connection)
+
+import warnings
+warnings.filterwarnings("ignore")
+
+# Importa la función create_engine de SQLAlchemy, necesaria para crear una conexión con la base de datos.
+from sqlalchemy import create_engine
+
+# Importa la biblioteca pandas, que permite trabajar con datos en estructuras tipo DataFrame.
+import pandas as pd                    
+
+# Importa la clase datetime del módulo datetime, útil para trabajar con fechas y horas.
+from datetime import datetime   
+
+# Crea un engine de conexión a una base de datos MySQL llamada 'banco_base'.
+# Usa el usuario 'root', la contraseña '1995', y se conecta al servidor local (localhost).
+engine = create_engine('mysql+pymysql://root:1995@localhost/banco_base')
+
+# Establece una conexión directa y sin procesar con la base de datos utilizando el engine.
+# Esto puede ser útil para ejecutar procedimientos almacenados o usar cursores manuales.
+connection = engine.raw_connection()  # Nota: el nombre usado debe coincidir con el engine creado
+
+
+pd.read_sql("SELECT * FROM tarjetas", connection)
+
+base = pd.read_sql("SELECT * FROM tarjetas", connection)
+
+base[base.tipo=="Credito"][["tipo","cliente"]]
+
+# Clase para realizar consultas básicas a una base de datos y sus tablas
+class BasicQueries:
+    def __init__(self, credentials):
+        """
+        Inicializa la clase con un diccionario de credenciales y establece la conexión.
+        """
+        self.isConnected = False
+        self.credentials = credentials
+
+        # Construcción de la cadena de conexión a partir del diccionario de credenciales
+        self.engstr = (
+            f"{self.credentials['servidor']}://"
+            f"{self.credentials['user']}:{self.credentials['user_pwd']}@"
+            f"{self.credentials['IP/localhost']}/{self.credentials['db']}"
+        )
+        self.connect()
+
+    def connect(self):
+        """
+        Establece la conexión a la base de datos usando SQLAlchemy.
+        """
+        try:
+            self.engine = create_engine(self.engstr)
+            self.conn = self.engine.raw_connection()
+            self.isConnected = True
+        except Exception as e:
+            print(f"No se pudo conectar a la base de datos. Error: {e}")
+
+    def consultar_tablas(self):
+        """
+        Consulta las tablas disponibles en la base de datos.
+        """
+        return pd.read_sql(f"SHOW TABLES FROM {self.credentials['db']}", self.conn)
+
+    def consultar_esquema(self, tabla):
+        """
+        Consulta el esquema de una tabla específica: nombres de columnas, tipo de datos y si permite nulos.
+        """
+        return pd.read_sql(
+            f"""
+            SELECT column_name, data_type, is_nullable 
+            FROM information_schema.columns 
+            WHERE table_name = '{tabla}'
+            """,
+            self.conn
+        )
+
+    def consultar_primeras_filas(self, tabla):
+        """
+        Consulta las primeras 5 filas de una tabla.
+        """
+        return pd.read_sql(f"SELECT * FROM {tabla} LIMIT 5", self.conn)
+
+    def query(self, query):
+        """
+        Ejecuta cualquier consulta SQL y devuelve el resultado como DataFrame.
+        """
+        return pd.read_sql(query, self.conn)
+
+
+credentials = {
+    "servidor" : "mysql+pymysql",
+    "user" : "root",
+    "user_pwd" : "1995",
+    "IP/localhost" : "localhost",
+    "db" : "banco_base"
+}
+
+# instanciamos la clase con las credenciales
+Q = BasicQueries(credentials)
+Q.conn
+
+#Realizamos las consultas con el objeto que instancia el engine
+pd.read_sql("Select * from tarjetas",Q.conn)
+
+Q.consultar_esquema("clientes")
+Q.consultar_primeras_filas("clientes")
+base = Q.query("Select * from tarjetas LIMIT 10")
+
+# Ejecuta una consulta SQL para obtener todas las columnas (*) de la tabla 'clientes'
+# filtrando los registros donde el campo 'id_cliente' sea igual a 5.
+
+Q.query("""SELECT * 
+           FROM clientes 
+           WHERE id_cliente=5;""")
+
+# Ejecuta una consulta SQL para obtener todas las columnas (*) de la tabla 'clientes'
+# filtrando los registros donde el campo 'edad' sea mayor a 50.
+Q.query("""
+    SELECT * 
+    FROM clientes 
+    WHERE edad > 50;
+""")
+
+# Ejecuta una consulta SQL para obtener las columnas 'edad', 'nombre' y 'pais' de la tabla 'clientes'
+# filtrando los registros donde el campo 'edad' sea mayor a 50.
+Q.query("""
+    SELECT edad, nombre, pais
+    FROM clientes
+    WHERE edad > 50;
+""")
+# Ejecuta una consulta SQL para obtener las columnas 'pais' y 'nombre' de la tabla 'clientes',
+# utilizando un alias 'c' para referirse a la tabla.
+
+Q.query("""
+    SELECT c.pais, c.nombre
+    FROM clientes c;
+""")
+
+# Ejecuta una consulta SQL que selecciona las columnas 'pais' y 'nombre' de la tabla 'clientes' (con alias 'c'),
+# renombrando temporalmente las columnas como 'country' y 'name' respectivamente para mayor claridad.
+Q.query("""
+    SELECT c.pais AS country, c.nombre AS name
+    FROM clientes c;
+""")
+
+# Ejecuta una consulta SQL que selecciona las columnas 'pais' y 'nombre' de la tabla 'clientes' (alias 'c'),
+# renombrándolas temporalmente como 'country' y 'name', y filtrando los registros donde 'ingresos' sea mayor a 10,000.
+Q.query("""
+    SELECT c.pais AS country, c.nombre AS name
+    FROM clientes c
+    WHERE c.ingresos > 10000;
+""")
+
+
+# Ejecuta una consulta SQL que selecciona las columnas 'edad' y 'nombre' de la tabla 'clientes',
+# filtrando los registros donde la edad esté entre 60 y 70 años (inclusive).
+Q.query("""
+    SELECT edad, nombre
+    FROM clientes
+    WHERE edad BETWEEN 60 AND 70;
+""")
+
+# Ejecuta una consulta SQL que selecciona las columnas 'edad' y 'nombre' de la tabla 'clientes',
+# filtrando los registros donde la edad esté entre 24 y 25 años o entre 30 y 31 años.
+Q.query("""
+    SELECT edad, nombre
+    FROM clientes
+    WHERE (edad BETWEEN 24 AND 25) OR (edad BETWEEN 30 AND 31);
+""")
+
+# Ejecuta una consulta SQL que selecciona las columnas 'edad' y 'nombre' de la tabla 'clientes',
+# filtrando los registros donde la edad esté entre 24 y 25 años y el nombre sea exactamente 'Kamal'.
+Q.query("""
+    SELECT edad, nombre
+    FROM clientes
+    WHERE (edad BETWEEN 24 AND 25) AND (nombre LIKE 'Kamal');
+""")
+
+# Ejecuta una consulta SQL que obtiene la edad máxima (maximo_edad) de la tabla 'clientes'.
+Q.query("""
+    SELECT MAX(edad) AS maximo_edad
+    FROM clientes;
+""")
+
+# Ejecuta una consulta SQL que obtiene la edad mínima de los clientes cuya edad sea mayor a 25 años.
+Q.query("""
+    SELECT MIN(edad)
+    FROM clientes
+    WHERE edad > 25;
+""")
+
+# Ejecuta una consulta SQL que obtiene los países únicos (sin repetidos) de la tabla 'clientes'.
+Q.query("""
+    SELECT DISTINCT pais
+    FROM clientes;
+""")
+
+
+### subconsultas
+# Ejecuta una consulta SQL que obtiene la edad máxima registrada en la tabla 'clientes'.
+Q.query("""
+    SELECT MAX(edad)
+    FROM clientes;
+""")
+
+# Ejecuta una consulta SQL que obtiene el nombre, edad y país de los clientes
+# cuya edad sea igual a la edad máxima registrada en la tabla 'clientes'.
+Q.query("""
+    SELECT nombre, edad, pais
+    FROM clientes
+    WHERE edad = (
+        SELECT MAX(edad)
+        FROM clientes
+    );
+""")
+
+# Ejecuta una consulta SQL que obtiene el nombre, edad y país de los clientes
+# cuyos 'id_cliente' sean 10, 11 o 12.
+Q.query("""
+    SELECT nombre, edad, pais
+    FROM clientes
+    WHERE id_cliente IN (10, 11, 12);
+""")
+
+
+# Ejecuta una consulta SQL que obtiene el campo 'cliente' de la tabla 'tarjetas',
+# filtrando los registros donde el valor de 'cliente' esté entre 10 y 12, inclusive.
+Q.query("""
+    SELECT cliente
+    FROM tarjetas
+    WHERE cliente BETWEEN 10 AND 12;
+""")
+
+# Ejecuta una consulta SQL que obtiene el nombre y la edad de los clientes
+# cuyo 'id_cliente' se encuentre dentro del conjunto de clientes que tienen tarjetas
+# con valores de cliente entre 10 y 20.
+Q.query("""
+    SELECT nombre, edad
+    FROM clientes
+    WHERE id_cliente IN (
+        SELECT cliente
+        FROM tarjetas
+        WHERE cliente BETWEEN 10 AND 20
+    );
+""")
+
+### FUNCIONES DE AGREGACIÓN
+# Ejecuta una consulta SQL que obtiene, para cada país, el ingreso máximo registrado en la tabla 'clientes'.
+# Agrupa los resultados por la columna 'pais' para calcular el máximo ingreso por país.
+Q.query("""
+    SELECT pais, MAX(ingresos)
+    FROM clientes
+    GROUP BY pais;
+""")
+
+# Ejecuta una consulta SQL que obtiene los países junto con el ingreso máximo registrado en la tabla 'clientes',
+# agrupando los resultados por país. Filtra para mostrar solo aquellos países donde el ingreso máximo sea mayor a 10,000,
+# y ordena los resultados en orden ascendente según el ingreso máximo.
+Q.query("""
+    SELECT pais, MAX(ingresos)
+    FROM clientes
+    GROUP BY pais
+    HAVING MAX(ingresos) > 10000
+    ORDER BY MAX(ingresos) ASC;
+""")
+
+# Ejecuta una consulta SQL que obtiene, para cada país, 
+# el conteo de clientes (count(nombre)) y el ingreso máximo (max(ingresos)) de clientes 
+# cuyo estrato sea 2. 
+# Agrupa los resultados por país, filtra para mostrar solo aquellos países donde 
+# el ingreso máximo sea mayor a 10,000 y el conteo de clientes sea igual a 2,
+# y ordena los resultados en orden ascendente según el ingreso máximo.
+Q.query("""
+    SELECT pais, COUNT(nombre), MAX(ingresos)
+    FROM clientes
+    WHERE estrato = 2
+    GROUP BY pais
+    HAVING MAX(ingresos) > 10000 AND COUNT(nombre) = 2
+    ORDER BY MAX(ingresos) ASC;
+""")
+
+# Ejecuta una consulta SQL que obtiene el nombre e ingresos de los clientes
+# que pertenecen al país 'Korea, South'.
+Q.query("""
+    SELECT nombre, ingresos
+    FROM clientes
+    WHERE pais = 'Korea, South';
+""")
+
+# Ejecuta una consulta SQL que obtiene cada país junto con el ingreso máximo registrado,
+# agrupando por país y ordenando los resultados de manera descendente según el ingreso máximo.
+Q.query("""
+    SELECT pais AS maximo_pais, MAX(ingresos)
+    FROM clientes
+    GROUP BY pais
+    ORDER BY MAX(ingresos) DESC;
+""")
+
+# Ejecuta una consulta SQL que obtiene cada país junto con el ingreso máximo registrado,
+# agrupando por país y ordenando los resultados de manera ascendente según el ingreso máximo.
+Q.query("""
+    SELECT pais AS maximo_pais, MAX(ingresos)
+    FROM clientes
+    GROUP BY pais
+    ORDER BY MAX(ingresos) ASC;
+""")
+
+# Ejecuta una consulta SQL que obtiene, para cada país, el ingreso máximo y la suma total de ingresos registrados,
+# agrupando los resultados por país. Luego ordena los resultados primero en orden ascendente por el ingreso máximo
+# y en caso de empate, en orden descendente por la suma de ingresos.
+Q.query("""
+    SELECT pais AS maximo_pais, MAX(ingresos), SUM(ingresos)
+    FROM clientes
+    GROUP BY pais
+    ORDER BY MAX(ingresos) ASC, SUM(ingresos) DESC;
+""")
+# Ejecuta una consulta SQL que realiza un LEFT JOIN entre las tablas 'clientes' y 'tarjetas',
+# devolviendo todas las filas de la tabla 'clientes' y las filas coincidentes de 'tarjetas'.
+# Si no hay coincidencia, los campos de 'tarjetas' serán NULL.
+Q.query("""
+    SELECT *
+    FROM clientes
+    LEFT JOIN tarjetas ON clientes.id_cliente = tarjetas.cliente;
+""")
+
+
+# Ejecuta una consulta SQL que obtiene el nombre y edad de los clientes (alias 'c'),
+# junto con el monto y tipo de sus tarjetas (alias 't'), realizando un JOIN
+# donde el 'id_cliente' de clientes coincide con 'cliente' en tarjetas.
+Q.query("""
+    SELECT c.nombre, c.edad, t.monto, t.tipo
+    FROM clientes c
+    JOIN tarjetas t ON c.id_cliente = t.cliente;
+""")
+
+# Ejecuta una consulta SQL que obtiene el nombre y edad de los clientes (alias 'c'),
+# junto con el monto y tipo de sus tarjetas (alias 't'), realizando un JOIN
+# entre las tablas 'clientes' y 'tarjetas' del esquema 'banco_base',
+# donde el 'id_cliente' de clientes coincide con 'cliente' en tarjetas.
+Q.query("""
+    SELECT c.nombre, c.edad, t.monto, t.tipo
+    FROM banco_base.clientes AS c
+    JOIN banco_base.tarjetas AS t ON c.id_cliente = t.cliente;
+""")
+
+Q.query("""
+    SELECT nombre, pais, ingresos,
+       ROW_NUMBER() OVER (ORDER BY ingresos DESC) AS fila_global
+    FROM clientes;
+""")
+
+Q.query("""
+    SELECT nombre, pais, ingresos,
+       ROW_NUMBER() OVER (ORDER BY ingresos DESC) AS fila_global
+    FROM clientes;
+""")
+
+Q.query("""
+    SELECT nombre, pais, ingresos,
+       ROW_NUMBER() OVER (PARTITION BY pais ORDER BY ingresos DESC) AS fila_por_pais
+FROM clientes;
+""")
+
+Q.query("""
+   SELECT nombre, pais, ingresos,
+       RANK() OVER (PARTITION BY pais ORDER BY ingresos DESC) AS ranking
+FROM clientes;
+""")
+
+Q.query("""
+  SELECT nombre, pais, ingresos,
+       DENSE_RANK() OVER (PARTITION BY pais ORDER BY ingresos DESC) AS dense_ranking
+FROM clientes;
+""")
+
+Q.query("""
+  SELECT nombre, pais, ingresos,
+       SUM(ingresos) OVER (PARTITION BY pais ORDER BY ingresos) AS suma_acumulada
+FROM clientes;
+""")
+
+Q.query("""
+ SELECT nombre, pais, ingresos,
+       AVG(ingresos) OVER () AS promedio_global
+FROM clientes;
+""")
+
+Q.query("""
+    SELECT pais, estrato,
+           COUNT(*) AS total_clientes,
+           AVG(ingresos) OVER (PARTITION BY pais) AS ingreso_promedio_pais
+    FROM clientes
+    GROUP BY pais, estrato;
+""")
+
+# host = localhost               --> Dirección del servidor de la base de datos (local)
+engine = create_engine('mysql+pymysql://root:1995@localhost/banco_base')
+
+engine.connect().execute(text("CREATE INDEX idx_nombre ON clientes(pais);"))
+
+Q.query("SHOW INDEX FROM clientes;")
+
+Q.query("""
+    EXPLAIN SELECT * FROM clientes where pais like 'm%';
+""")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
