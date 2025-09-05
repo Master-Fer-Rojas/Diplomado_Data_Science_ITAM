@@ -1,0 +1,276 @@
+
+
+# Hacemos una petición HTTP (GET/POST) para traer HTML/JSON del sitio.
+# Parseamos el HTML con BeautifulSoup para encontrar tags/atributos.
+# Definimos User-Agent para no parecer bot genérico.
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import numpy as np
+import time
+import re
+
+# Tip: revisa y respeta robots.txt antes de scrapear.
+headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+url = "https://example.com/"
+resp = requests.get(url, headers=headers, timeout=20)
+resp.raise_for_status()
+html = resp.text
+
+# Parseo básico con BS4 (find/find_all)
+soup = BeautifulSoup(html, "html.parser")
+titulo = soup.find("h1").get_text(strip=True) if soup.find("h1") else None
+parrafos = [p.get_text(strip=True) for p in soup.find_all("p")]
+enlaces = [a.get("href") for a in soup.find_all("a", href=True)]
+print("Título:", titulo)
+print("Párrafos:", parrafos[:3])
+print("Enlaces:", enlaces[:5])
+
+# Manejo de errores: si algo falla, reintenta sin caerse
+def get_with_retry(url, headers=None, tries=3, wait=2):
+    for i in range(tries):
+        try:
+            r = requests.get(url, headers=headers, timeout=20)
+            r.raise_for_status()
+            return r
+        except Exception as e:
+            print(f"Intento {i+1}/{tries} falló: {e}")
+            time.sleep(wait)
+    return None
+
+# Raspado de varias páginas a DataFrame (mini demo)
+base = "https://example.com"
+urls = [base, base + "/more", base + "/even-more"]
+rows = []
+for u in urls:
+    r = get_with_retry(u, headers=headers)
+    if not r:
+        continue
+    s = BeautifulSoup(r.text, "html.parser")
+    h1 = s.find("h1")
+    title = h1.get_text(strip=True) if h1 else None
+    first_link = s.find("a", href=True).get("href") if s.find("a", href=True) else None
+    rows.append({"url": u, "title": title, "first_link": first_link})
+
+df = pd.DataFrame(rows)
+print(df.head())
+df.to_csv("example_scrape.csv", index=False)
+
+# --- XPath con lxml ---
+from lxml import html as lxml_html
+doc = lxml_html.fromstring(html)
+h1_texts = doc.xpath("//h1/text()")
+links = doc.xpath("//a/@href")
+print("H1 via XPath:", h1_texts[:3])
+print("Links via XPath:", links[:5])
+
+# Regex para extraer cosas (e.g., emails) cuando el HTML viene feo
+emails = re.findall(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", html)
+print("Posibles emails:", emails[:5])
+
+# Requests Session: mantiene cookies, más eficiente
+with requests.Session() as ses:
+    ses.headers.update(headers)
+    r = ses.get(url, timeout=20)
+    print("Status con Session:", r.status_code)
+
+# Ejemplo real: listar posts de un blog
+blog = "https://blog.python.org/"
+r = get_with_retry(blog, headers=headers)
+if r:
+    s = BeautifulSoup(r.text, "html.parser")
+    posts = s.select(".date-outer .post-title a")
+    items = [{"title": a.get_text(strip=True), "href": a.get("href")} for a in posts[:10]]
+    pd.DataFrame(items).to_csv("blog_python_posts.csv", index=False)
+    print(pd.DataFrame(items).head(10))
+
+time.sleep(1.0)
+
+# Scraping paginado sencillo (?page=1..N)
+def scrape_page(page: int):
+    u = f"https://httpbin.org/anything?page={page}"
+    r = get_with_retry(u, headers=headers)
+    if not r: 
+        return None
+    try:
+        data = r.json()
+    except Exception:
+        return None
+    return {"page": page, "url": data.get("url")}
+
+pages_data = [d for p in range(1, 6) if (d := scrape_page(p))]
+df_pages = pd.DataFrame(pages_data)
+print(df_pages)
+
+# Scraping de tabla HTML -> DataFrame
+tab_url = "https://www.w3schools.com/html/html_tables.asp"
+r = get_with_retry(tab_url, headers=headers)
+if r:
+    soup_tab = BeautifulSoup(r.text, "html.parser")
+    table = soup_tab.find("table")
+    rows = []
+    if table:
+        for tr in table.find_all("tr"):
+            cols = [c.get_text(strip=True) for c in tr.find_all(["th","td"])]
+            if cols:
+                rows.append(cols)
+        if rows and all(rows[0]):
+            cols = rows[0]; data = rows[1:]
+            df_tab = pd.DataFrame(data, columns=cols)
+        else:
+            df_tab = pd.DataFrame(rows)
+        print("Tabla parseada:")
+        print(df_tab.head())
+        df_tab.to_csv("tabla_ejemplo.csv", index=False)
+
+# Descargar un PDF (verifica permisos/legales)
+pdf_demo = "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
+r = get_with_retry(pdf_demo, headers=headers)
+if r and r.ok:
+    with open("dummy.pdf", "wb") as f:
+        f.write(r.content)
+    print("PDF descargado: dummy.pdf")
+
+# Selenium para páginas dinámicas (requiere driver instalado)
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+
+chrome_opts = Options()
+chrome_opts.add_argument("--headless=new")
+chrome_opts.add_argument("--no-sandbox")
+chrome_opts.add_argument("--disable-dev-shm-usage")
+
+# driver = webdriver.Chrome(options=chrome_opts)
+# driver.get("https://quotes.toscrape.com/")
+# time.sleep(2)
+# quotes = driver.find_elements(By.CSS_SELECTOR, ".quote")
+# data = []
+# for q in quotes:
+#     text = q.find_element(By.CSS_SELECTOR, ".text").text
+#     author = q.find_element(By.CSS_SELECTOR, ".author").text
+#     data.append({"text": text, "author": author})
+# pd.DataFrame(data).to_csv("quotes.csv", index=False)
+# driver.quit()
+
+# Scraping async con aiohttp/asyncio (requests en paralelo)
+import asyncio, aiohttp
+
+async def fetch(session, url):
+    try:
+        async with session.get(url, timeout=20) as resp:
+            return url, await resp.text()
+    except Exception:
+        return url, None
+
+async def scrape_many(urls):
+    async with aiohttp.ClientSession(headers=headers) as session:
+        tasks = [fetch(session, u) for u in urls]
+        return await asyncio.gather(*tasks)
+
+urls_async = [f"https://httpbin.org/anything?id={i}" for i in range(10)]
+try:
+    results = asyncio.run(scrape_many(urls_async))
+except RuntimeError:
+    loop = asyncio.get_event_loop()
+    results = loop.run_until_complete(scrape_many(urls_async))
+ok = [(u, len(h) if h else 0) for (u, h) in results]
+print("Resultados async (url, tamaño_html):", ok[:5])
+
+# robots.txt rápido
+robots = requests.get("https://example.com/robots.txt", headers=headers, timeout=20)
+print("robots.txt status:", robots.status_code)
+print(robots.text[:300])
+
+# XPath detallado con lxml.etree
+from lxml import etree
+
+html_demo = """
+<html>
+  <body>
+    <h1 class="titulo">This is a Title</h1>
+    <div id="contenido">
+       <p>Uno</p>
+       <p>Dos</p>
+       <a href="/a">A</a>
+       <a href="/b">B</a>
+       <span class="especial">VIP</span>
+       <span>Normal</span>
+    </div>
+  </body>
+</html>
+"""
+parser = etree.HTMLParser()
+tree = etree.fromstring(html_demo, parser)
+
+print("1. H1:", tree.xpath('//h1/text()')[0])
+print("2. Ps:", [t.strip() for t in tree.xpath('//p/text()')])
+print("3. Links:", tree.xpath('//a/@href'))
+print("4. Textos en #contenido:", [t.strip() for t in tree.xpath('//*[@id="contenido"]//text()') if t.strip()])
+print("5. H1 .titulo:", tree.xpath('//h1[@class="titulo"]/text()')[0])
+print("6. Primer <a>:", tree.xpath('(//a)[1]/@href')[0])
+
+# not() en atributo
+sin_especial = tree.xpath('//span[not(contains(@class, "especial"))]')
+print("7. Span que NO tiene 'especial':")
+for s in sin_especial:
+    print(" -", s.text_content())
+
+# text() para obtener texto dentro de etiquetas
+textos_h1 = tree.xpath('//h1[contains(text(), "This is")]/text()')
+print("8. Texto dentro de <h1>:", textos_h1[0])
+
+# @atributo de una etiqueta con cierto texto
+clase_h1 = tree.xpath('//h1[contains(text(), "This is")]/@class')
+print("9. Clase del <h1> con texto 'This is':", clase_h1[0])
+
+# Caso Selenium práctico: navegar y bajar PDF (requiere driver + permisos)
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+import requests as rq
+import os, time
+
+chrome_opts = Options()
+chrome_opts.add_argument("--headless=new")
+chrome_opts.add_argument("--no-sandbox")
+chrome_opts.add_argument("--disable-dev-shm-usage")
+
+# driver = webdriver.Chrome(options=chrome_opts)
+# driver.get("https://www.gob.mx/cnbv/documentos/inscripcion-de-emisoras")
+# time.sleep(3)
+# documentos = driver.find_elements(By.CSS_SELECTOR, 'a[href*=".pdf"]')
+# urls_pdf = [d.get_attribute("href") for d in documentos]
+# print("PDFs encontrados:", urls_pdf[:5])
+# if urls_pdf:
+#     pdf_url = urls_pdf[0]
+#     r = rq.get(pdf_url, timeout=30)
+#     if r.ok:
+#         with open("documento.pdf", "wb") as f:
+#             f.write(r.content)
+#         print("Descargado: documento.pdf")
+# driver.quit()
+
+# Otro caso: buscar anchor que contenga palabra y bajar PDF
+# driver = webdriver.Chrome(options=chrome_opts)
+# driver.get("https://www.gob.mx/cnbv")
+# time.sleep(3)
+# documentos2 = driver.find_elements(By.CSS_SELECTOR, "a")
+# url = [z.get_attribute("href") for z in documentos2 if "prospecto" in z.get_attribute("innerHTML").lower()][0]
+# page = rq.get(url, timeout=30)
+# with open("prospecto.pdf", "wb") as f:
+#     f.write(page.content)
+# driver.quit()
+
+# Guardado final (si generas una tabla llamada 'resultados'):
+# pd.DataFrame(resultados).to_csv("salida.csv", index=False)
+# pd.DataFrame(resultados).to_parquet("salida.parquet", index=False)
+
+# Ejemplo concreto de descarga directa (ilustrativo; ajusta rutas a tu entorno)
+# OJO: estas rutas de Windows son del ejemplo original del notebook
+url=[z.get_attribute("href") for z in documentos2 if "prospecto" in z.get_attribute("innerHTML").lower()][0]
+page = rq.get(url)
+page
+os.chdir("C:\\Users\\ortca\\Downloads")
+with open("Prueba2fer.pdf", "wb") as f:
+    f.write(page.content)
