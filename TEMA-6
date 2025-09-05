@@ -1,0 +1,331 @@
+# Serie de tiempo — resumen:
+# Secuencia de observaciones ordenadas en el tiempo. Propiedades clave:
+# tendencia (comportamiento a largo plazo), estacionalidad (patrones cíclicos),
+# autocorrelación (pasado influye en presente) y estacionariedad (estadísticas constantes en el tiempo).
+
+# Procesos estocásticos — resumen:
+# Colección de variables aleatorias indexadas en el tiempo; cada realización es una trayectoria posible.
+# El comportamiento depende de distribuciones y dependencias entre momentos. Si la serie no es estacionaria,
+# suele requerir transformaciones (p. ej., diferenciar) para modelarla adecuadamente.
+
+# Error aleatorio — resumen:
+# Parte no explicada por el modelo (ruido). Buenos residuos deben tener media≈0, varianza constante (homocedasticidad),
+# no autocorrelación y, opcionalmente, distribución ~ normal. Validar esto asegura que lo “sistémico” ya quedó modelado.
+
+# --- Importaciones (según notebook) ---
+from pandas import read_csv
+from matplotlib import pyplot as plt
+from statsmodels.graphics.tsaplots import plot_acf
+import statsmodels.api as sm
+import pandas as pd
+import numpy as np
+from scipy.stats import norm
+import scipy.stats as stats
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+from statsmodels.tsa.stattools import adfuller
+import warnings
+warnings.filterwarnings("ignore")
+
+# Cargar serie “households.csv” (diaria; índice como fecha)
+dh = read_csv("households.csv", header=0, index_col=0, parse_dates=True)
+dh.head()
+
+# Carga sin parsear (muestra)
+series = read_csv("households.csv", header=0, index_col=0)
+series.head()
+
+# Vista rápida de la serie
+series.plot(figsize=(20, 10))
+
+# Releer con fechas como índice y revisar índice
+series = read_csv("households.csv", header=0, index_col=0, parse_dates=True)
+series.index
+series.index.dtype
+type(series.index)
+series.index[0:5]
+series.index[-5:]
+series
+
+# Limpieza — nulos (conteo)
+series.isna().sum()
+
+# Copia de trabajo
+df = series.copy()
+df.index.min()
+df.index.max()
+
+# Subserie hasta 1980
+df[:'1980'].plot(figsize=(20, 7))
+
+# Frecuencia declarada/inferida
+print(df.index.freq)
+print(df.index.inferred_freq)
+
+# Re‐muestreo mensual por suma
+df_m = df.resample("M").sum()
+len(df), len(df_m)
+
+# Diaria vs mensual
+fig, ax = plt.subplots(1, 2, figsize=(20, 10))
+df.plot(ax=ax[0], title="Daily")
+df_m.plot(ax=ax[1], title="Monthly")
+
+# Suavizado: media móvil 7 días (centrada)
+s7 = df.rolling(7, center=True).mean().dropna()
+
+# Plot diaria + suavizada y mensual
+fig, ax = plt.subplots(1, 2, figsize=(20, 10))
+df.plot(ax=ax[0], title="Daily", label="daily")
+s7.plot(ax=ax[0], label="smooth (7d)")
+df_m.plot(ax=ax[1], title="Monthly", label="monthly")
+
+# Transformaciones/normalización (título del notebook) — no había código aquí.
+
+# Detección y eliminación de outliers (3σ)
+df.index.min(), df.index.max()
+df.boxplot()
+df.describe()
+mu, sd = df.mean(), df.std()
+mu, sd
+outliers = df[(df < mu - 3*sd) | (df > mu + 3*sd)]
+outliers.dropna()
+df2 = df[(df >= mu - 3*sd) & (df <= mu + 3*sd)]
+df2.dropna()
+
+fig, ax = plt.subplots(1, 2, figsize=(20, 10))
+df.plot(ax=ax[0], label="original")
+df2.plot(ax=ax[1], label="sin outliers")
+
+df2.plot(figsize=(20, 7), label="sin outliers")
+df2.boxplot()
+
+# “Capado” a 3σ (winsorizing)
+df3 = df.copy()
+df3[df3 < mu - 3*sd] = mu - 3*sd
+df3[df3 > mu + 3*sd] = mu + 3*sd
+df3
+df3.boxplot()
+mu3, sd3 = df3.mean(), df3.std()
+mu3, sd3
+mu3 - sd3
+mu3 + sd3
+
+# Comparativa original vs sin outliers vs capado
+df.plot(figsize=(20, 7), label="original")
+df2.plot(figsize=(20, 7), label="sin outliers")
+df3.plot(figsize=(20, 7), label="capado")
+
+fig, ax = plt.subplots(1, 3, figsize=(26, 6))
+df.boxplot(ax=ax[0]); ax[0].set_title("original")
+df2.boxplot(ax=ax[1]); ax[1].set_title("sin outliers")
+df3.boxplot(ax=ax[2]); ax[2].set_title("capado")
+
+df.describe(), df2.describe(), df3.describe()
+
+# Medias móviles y exponencial
+rolling = df_m.rolling(3).mean()
+ewm = df_m.ewm(span=3).mean()
+
+fig, ax = plt.subplots(1, 2, figsize=(20, 7))
+df_m.plot(ax=ax[0], label="mensual", title="SMA 3")
+rolling.plot(ax=ax[0], label="sma")
+df_m.plot(ax=ax[1], label="mensual", title="EWMA 3")
+ewm.plot(ax=ax[1], label="ewma")
+
+# Mediana móvil 3M
+median = df_m.rolling(3).median()
+fig, ax = plt.subplots(1, 2, figsize=(20, 7))
+df_m.plot(ax=ax[0], label="mensual", title="Median 3")
+median.plot(ax=ax[0], label="median")
+df_m.plot(ax=ax[1], label="mensual")
+median.plot(ax=ax[1], label="median")
+
+# Estacionariedad — idea general:
+# Para modelos ARIMA/SARIMAX normalmente necesitamos estacionariedad. Probamos con ADF
+# sobre la serie log-diferenciada y, si el p-value es bajo, asumimos estacionariedad.
+
+from statsmodels.tsa.stattools import adfuller
+X_dif = np.log(series).diff().dropna().iloc[:, 0]
+result_dif = adfuller(X_dif, maxlag=1, regression="n", autolag="AIC")
+print("ADF Statistic:", result_dif[0])
+print("p-value:", result_dif[1])
+print("Lags used:", result_dif[2])
+print("Nobs:", result_dif[3])
+print("Critical values:")
+for k, v in result_dif[4].items():
+    print(f"\t{k}: {v:.3f}")
+
+# ACF/PACF — para intuir órdenes AR/MA:
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+len(X_dif)
+X_dif[:167]
+len(X_dif)
+
+train = X_dif[:167]
+test  = X_dif[167:]
+train.tail()
+test.head()
+plt.figure
+
+fig, ax = plt.subplots(1, 2, figsize=(20, 7))
+plot_acf(train,  zero=False, ax=ax[0], lags=40)
+plot_pacf(train, zero=False, ax=ax[1], lags=40)
+
+# Modelo ARIMA (demo simple con orden (1,0,1) aplicado a 'train'):
+from statsmodels.tsa.arima.model import ARIMA
+modelo = ARIMA(train, order=(1, 0, 1))
+ajuste  = modelo.fit()
+
+# Forecast 10 pasos:
+prediccion = ajuste.get_forecast(steps=10)
+prediccion_valores = prediccion.predicted_mean
+print(prediccion_valores)
+
+plt.figure(figsize=(20, 10))
+plt.plot(train, label="train")
+plt.plot(test,  label="test")
+plt.plot(prediccion_valores, label="forecast", color="red")
+plt.legend()
+plt.show()
+
+ajuste.summary()
+len(train)
+
+# Walk/shift — inspecciones rápidas de la serie:
+walk = X_dif.copy()
+walk.shift(1)[:10]
+walk
+walk.shift(1)[:10]
+walk.shift(1).plot()
+walk.shift(1).shape
+train.shape
+train
+
+# Diagnóstico de residuos — buscamos “ruido blanco”:
+from statsmodels.stats.diagnostic import acorr_ljungbox
+residuos = ajuste.resid
+residuos
+len(residuos)
+
+plt.figure(figsize=(10, 6))
+plt.subplot(2, 1, 1)
+plt.plot(residuos)
+plt.title("Residual plot")
+plt.subplot(2, 1, 2)
+plt.hist(residuos, bins=20)
+plt.title("Histogram residuals")
+plt.tight_layout()
+plt.show()
+
+fig, ax = plt.subplots(1, 2, figsize=(20, 7))
+plot_acf(residuos,  zero=False, ax=ax[0], lags=40)
+plot_pacf(residuos, zero=False, ax=ax[1], lags=40)
+
+ljung_box_test = acorr_ljungbox(residuos, lags=[10], return_df=True)
+ljung_box_test
+
+# Heterocedasticidad — Breusch–Pagan:
+from statsmodels.stats.diagnostic import het_breuschpagan
+X_sm    = sm.add_constant(train.values)
+bp_test = het_breuschpagan(residuos, X_sm)
+lm_stat, lm_pvalue, f_stat, f_pvalue = bp_test
+print("LM:", lm_stat, "p:", lm_pvalue, " F:", f_stat, " pF:", f_pvalue)
+
+# Heterocedasticidad — White:
+from statsmodels.stats.diagnostic import het_white
+X_sm = sm.add_constant(train)
+white = het_white(residuos, X_sm)
+white_stat, white_pvalue = white[0], white[1]
+print("White stat:", white_stat)
+print("White p:",  white_pvalue)
+
+# Forecast adicional con el mismo ajuste (mismo horizonte de 10 pasos):
+prediccion2        = ajuste.get_forecast(steps=10)
+prediccion_valores2 = prediccion2.predicted_mean
+print(prediccion_valores2)
+
+plt.figure(figsize=(20, 10))
+plt.plot(train, label="train")
+plt.plot(test,  label="test")
+plt.plot(prediccion_valores2, label="forecast", color="red")
+plt.legend()
+plt.show()
+
+# Distribución y Q-Q plot de residuos (checar normalidad aproximada):
+import seaborn as sns
+plt.figure(figsize=(12, 5))
+plt.subplot(1, 2, 1)
+sns.histplot(residuos, kde=True)
+plt.title("Distribución de los residuos")
+plt.subplot(1, 2, 2)
+stats.probplot(residuos, dist="norm", plot=plt)
+plt.title("Gráfico Q-Q de los residuos")
+plt.tight_layout()
+plt.show()
+
+# ACF/PACF de residuos:
+plt.figure(figsize=(12, 5))
+plt.subplot(1, 2, 1)
+plot_acf(residuos, ax=plt.gca(), lags=30, zero=False)
+plt.title("ACF de los residuos")
+plt.subplot(1, 2, 2)
+plot_pacf(residuos, ax=plt.gca(), lags=30, zero=False)
+plt.title("PACF de los residuos")
+plt.tight_layout()
+plt.show()
+
+# Ayuda de la función ACF (lo trae el notebook tal cual):
+help(plot_acf)
+
+# Nuevo chequeo ADF sobre otra log-diferencia (mismo criterio):
+from statsmodels.tsa.stattools import adfuller
+X_dif2    = np.log(series).diff().dropna().iloc[:, 0]
+result_dif = adfuller(X_dif2, maxlag=1, regression="n", autolag="AIC")
+print("ADF Statistic:", result_dif[0])
+print("p-value:", result_dif[1])
+print("Lags used:", result_dif[2])
+print("Nobs:", result_dif[3])
+print("Critical values:")
+for k, v in result_dif[4].items():
+    print(f"\t{k}: {v:.3f}")
+
+# ACF/PACF y ajuste ARIMA(1,0,1) sobre X_dif2:
+fig, ax = plt.subplots(1, 2, figsize=(20, 7))
+plot_acf(X_dif2, zero=False, ax=ax[0], lags=40)
+plot_pacf(X_dif2, zero=False, ax=ax[1], lags=40)
+
+from statsmodels.tsa.arima.model import ARIMA
+modelo2 = ARIMA(X_dif2, order=(1, 0, 1))
+ajuste2  = modelo2.fit()
+
+prediccion2         = ajuste2.get_forecast(steps=10)
+prediccion_valores2 = prediccion2.predicted_mean
+print(prediccion_valores2)
+
+plt.figure(figsize=(20, 10))
+plt.plot(train, label="train")
+plt.plot(test,  label="test")
+plt.plot(prediccion_valores2, label="forecast", color="red")
+plt.legend()
+plt.show()
+
+# (Repite diagnóstico visual de residuos igual que arriba)
+plt.figure(figsize=(12, 5))
+plt.subplot(1, 2, 1)
+sns.histplot(residuos, kde=True)
+plt.title("Distribución de los residuos")
+plt.subplot(1, 2, 2)
+stats.probplot(residuos, dist="norm", plot=plt)
+plt.title("Gráfico Q-Q de los residuos")
+plt.tight_layout()
+plt.show()
+
+plt.figure(figsize=(12, 5))
+plt.subplot(1, 2, 1)
+plot_acf(residuos, ax=plt.gca(), lags=30, zero=False)
+plt.title("ACF de los residuos")
+plt.subplot(1, 2, 2)
+plot_pacf(residuos, ax=plt.gca(), lags=30, zero=False)
+plt.title("PACF de los residuos")
+plt.tight_layout()
+plt.show()
